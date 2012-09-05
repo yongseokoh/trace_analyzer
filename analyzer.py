@@ -7,8 +7,15 @@ import numpy as np
 
 def read_trace(filename):
 
-	blklist = []
+	blklist_write = []
+	blklist_read = []
 	lifelist = []
+
+	write_count = 0
+	read_count = 0
+	total_count = 0
+	pagesize = 8
+
 	try: 
 		file = open(filename)
 		for s in file:
@@ -21,14 +28,23 @@ def read_trace(filename):
 			bcount = int(w[3])
 			readflag = int(w[4])
 				
-			if readflag == 1:
-				continue
+			if bcount % pagesize:
+				bcount -= (bcount % pagesize)
+				bcount += pagesize
+
+			for b in range(0, bcount, pagesize):
 
 
-			for b in range(0, bcount, 8):
-				pno = (blkno + b)/8  
-				blklist.append(pno)
-				lifelist.append(arrivetime)
+				if readflag == 0:
+					pno = (blkno + b)/8  
+					blklist_write.append(pno)
+					lifelist.append(arrivetime)
+					write_count+=1
+				else:
+					blklist_read.append(pno)
+					read_count+=1
+
+				total_count += 1
 
 		#print "list len = ", len(blklist)
 
@@ -37,9 +53,22 @@ def read_trace(filename):
 	except IOError:
 		print >> sys.stderr, " Cannot open file "
 
-	blklist.sort()
+	blklist_write.sort()
+	print " I/O Statistics " 
+	print " Total Read Pages %d, %.2f MB" %(read_count, double(read_count)/256) 
+	print " Total Write Pages %d, %.2f MB " %(write_count, double(write_count)/256)
+	print " Total Pages %d, %.2f MB" % (total_count, double(total_count)/256)
+	print " Read Ratio %.2f" %(double(read_count)/double(total_count))
+	print ""
+
+	freq_list_write = make_freq_list(blklist_write)
+	freq_list_read = make_freq_list(blklist_read)
+	print " Write Working Set %d, %.2f MB" %(len(freq_list_write), double(len(freq_list_write))/256) 
+	print " Read Working Set %d, %.2f MB" %(len(freq_list_read), double(len(freq_list_read))/256) 
+
+
 #print "sort" 
-	return blklist, lifelist
+	return blklist_write, lifelist
 
 def make_x_y_lifefreq(blklist, lifelist):
 
@@ -113,10 +142,8 @@ def make_x_y_life(blklist, lifelist):
 	return xaxis, yaxis
 
 
-
-def make_x_y_blkno(blklist):
+def make_freq_list(blklist):
 	blklist_bincount = np.bincount(blklist)
-#	print " bin count " 
 #	del blklist
 
 	blklist_sort = np.sort(blklist_bincount, axis = 0)
@@ -135,10 +162,18 @@ def make_x_y_blkno(blklist):
 		
 	blklist = blklist[0:lastindex-1]
 
+	return blklist
+
+def make_x_y_blkno(blklist, cumulative):
+
+	blklist = make_freq_list(blklist)
 #	print "find last "
 
-	sum = np.sum(blklist)
-	blklist = blklist.cumsum() * float(100) / sum
+	if cumulative:
+		sum = np.sum(blklist)
+		blklist = blklist.cumsum() * float(100) / sum
+	else:
+		blklist = blklist
 
 	if len(blklist) > 10000:
 		width = len(blklist)/100
@@ -185,15 +220,20 @@ graphname = sys.argv[2]
 
 
 blklist, lifelist = read_trace(filename)
+print "Complete read trace", filename
 
-xaxis, yaxis = make_x_y_life(blklist, lifelist)
-draw_linegraph(xaxis, yaxis, "Block Life Time (sec)", "Pecent Blocks", False, False, graphname + "_lifetime" + ".png")
+xaxis, yaxis = make_x_y_blkno(blklist, 1)
+draw_linegraph(xaxis, yaxis, "Block Ranges (MB)", "Cumulative Write Frequency", False, False,  graphname + "_cdf" + ".png")
 
-xaxis, yaxis = make_x_y_lifefreq(blklist, lifelist)
-draw_linegraph(xaxis, yaxis, "Block Life Time (sec)", "Update Count", False, False, graphname + "_lifefreq" + ".png")
+xaxis, yaxis = make_x_y_blkno(blklist, 0)
+draw_linegraph(xaxis, yaxis, "Block Ranges (MB)", "Cumulative Write Frequency", False, False,  graphname + "_frequency" + ".png")
 
-xaxis, yaxis = make_x_y_blkno(blklist)
-draw_linegraph(xaxis, yaxis, "Block Ranges (MB)", "Percent Blocks", False, False,  graphname + "_frequency" + ".png")
+#xaxis, yaxis = make_x_y_life(blklist, lifelist)
+#draw_linegraph(xaxis, yaxis, "Block Life Time (sec)", "Pecent Blocks", False, False, graphname + "_lifetime" + ".png")
+
+#xaxis, yaxis = make_x_y_lifefreq(blklist, lifelist)
+#draw_linegraph(xaxis, yaxis, "Block Life Time (sec)", "Update Count", False, False, graphname + "_lifefreq" + ".png")
+
 
 print " EOP " 
 
