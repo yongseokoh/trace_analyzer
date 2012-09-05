@@ -7,14 +7,22 @@ import numpy as np
 
 def read_trace(filename):
 
-	blklist_write = []
-	blklist_read = []
-	lifelist = []
+#blklist_write = []
+#	blklist_read = []
+#lifelist = []
 
 	write_count = 0
 	read_count = 0
 	total_count = 0
 	pagesize = 8
+
+	write_req_size = 0
+	write_req_count = 0
+	read_req_size = 0
+	read_req_count = 0
+
+	write_wss ={}
+	read_wss = {}
 
 	try: 
 		file = open(filename)
@@ -32,17 +40,35 @@ def read_trace(filename):
 				bcount -= (bcount % pagesize)
 				bcount += pagesize
 
-			for b in range(0, bcount, pagesize):
+			if readflag == 0:
+				write_req_size += (bcount/pagesize)
+				write_req_count += 1
+			else:
+				read_req_size += (bcount/pagesize)
+				read_req_count += 1
 
+			for b in range(0, bcount, pagesize):
 
 				if readflag == 0:
 					pno = (blkno + b)/8  
-					blklist_write.append(pno)
-					lifelist.append(arrivetime)
+#blklist_write.append(pno)
+#lifelist.append(arrivetime)
 					write_count+=1
+
+					if write_wss.has_key(pno) != True:
+						write_wss[pno] = 1 
+					else:
+						write_wss[pno] += 1
+
+#print write_wss[pno]
 				else:
-					blklist_read.append(pno)
+#blklist_read.append(pno)
 					read_count+=1
+
+					if read_wss.has_key(pno) != True:
+						read_wss[pno] = 1 
+					else:
+						read_wss[pno] += 1
 
 				total_count += 1
 
@@ -53,7 +79,7 @@ def read_trace(filename):
 	except IOError:
 		print >> sys.stderr, " Cannot open file "
 
-	blklist_write.sort()
+#blklist_write.sort()
 	print " I/O Statistics " 
 	print " Total Read Pages %d, %.2f MB" %(read_count, double(read_count)/256) 
 	print " Total Write Pages %d, %.2f MB " %(write_count, double(write_count)/256)
@@ -61,15 +87,98 @@ def read_trace(filename):
 	print " Read Ratio %.2f" %(double(read_count)/double(total_count))
 	print ""
 
-	freq_list_write = make_freq_list(blklist_write)
-	freq_list_read = make_freq_list(blklist_read)
-	print " Write Working Set %d, %.2f MB" %(len(freq_list_write), double(len(freq_list_write))/256) 
-	print " Read Working Set %d, %.2f MB" %(len(freq_list_read), double(len(freq_list_read))/256) 
+#freq_list_write = make_freq_list(blklist_write)
+#	freq_list_read = make_freq_list(blklist_read)
+	read_wss_size = len(read_wss)
+	write_wss_size = len(write_wss)
+
+	print " Write Working Set %d, %.2f MB" %(write_wss_size, double(write_wss_size)/256) 
+	print " Read Working Set %d, %.2f MB" %(read_wss_size, double(read_wss_size)/256) 
+
+	print " Average Read Req Size %.2f KB" %(double(read_req_size)/read_req_count*4)
+	print " Average Write Req Size %.2f KB" %(double(write_req_size)/write_req_count*4)
+	print ""
 
 
-#print "sort" 
-	return blklist_write, lifelist
+	freqlist_write = write_wss.values()
+	freqlist_read = read_wss.values()
+	
+	return freqlist_write, freqlist_read
 
+
+def make_x_y_blkno(freqlist, cumulative):
+
+	freqlist = np.array(freqlist)
+	freqlist = np.sort(freqlist, axis = 0)
+	freqlist = freqlist[::-1]
+
+	if cumulative:
+		sum = np.sum(freqlist)
+		freqlist = freqlist.cumsum() * float(100) / sum
+	else:
+		freqlist = freqlist
+
+	if len(freqlist) > 10000:
+		width = len(freqlist)/100
+	else:
+		width = 1
+
+	xaxis = []
+	yaxis = []
+	for i in range(0, len(freqlist), width):
+		xaxis.append(float(i)/256)
+		yaxis.append(freqlist[i])
+
+	return xaxis, yaxis
+
+def draw_linegraph(xaxis, yaxis, xlabel, ylabel, xlogscale, ylogscale, graphname):
+
+	plot = Plot()
+
+	line = Line()
+	line.xValues = xaxis
+	line.yValues = yaxis 
+	line.lineStyle = "-"
+	line.color = "red"
+
+	plot.add(line)
+	plot.xLabel = xlabel
+	plot.yLabel = ylabel 
+	plot.logx = xlogscale
+	plot.logy = ylogscale
+	plot.setDimensions(8, 6, 100)
+	plot.save(graphname)
+
+	print " Save " + graphname
+
+
+
+# main program 
+if len(sys.argv) != 3 :
+	print sys.stderr, " Invalid args "  
+	exit(1)
+
+print sys.argv[1]
+
+
+filename = sys.argv[1] 
+graphname = sys.argv[2]
+
+
+freqlist_write, freqlist_read = read_trace(filename)
+print "Complete read trace", filename
+
+xaxis, yaxis = make_x_y_blkno(freqlist_write, 1)
+draw_linegraph(xaxis, yaxis, "Block Ranges (MB)", "Cumulative Write Frequency", False, False,  graphname + "_cdf" + ".pdf")
+
+xaxis, yaxis = make_x_y_blkno(freqlist_write, 0)
+draw_linegraph(xaxis, yaxis, "Block Ranges (MB)", "Write Frequency", False, False,  graphname + "_frequency" + ".pdf")
+
+
+
+print " EOP " 
+
+""""
 def make_x_y_lifefreq(blklist, lifelist):
 
 	dict = {}
@@ -140,8 +249,9 @@ def make_x_y_life(blklist, lifelist):
 		yaxis.append(float(i)*100/len(lifelist_sort))
 
 	return xaxis, yaxis
+"""
 
-
+"""
 def make_freq_list(blklist):
 	blklist_bincount = np.bincount(blklist)
 #	del blklist
@@ -163,77 +273,4 @@ def make_freq_list(blklist):
 	blklist = blklist[0:lastindex-1]
 
 	return blklist
-
-def make_x_y_blkno(blklist, cumulative):
-
-	blklist = make_freq_list(blklist)
-#	print "find last "
-
-	if cumulative:
-		sum = np.sum(blklist)
-		blklist = blklist.cumsum() * float(100) / sum
-	else:
-		blklist = blklist
-
-	if len(blklist) > 10000:
-		width = len(blklist)/100
-	else:
-		width = 1
-
-	xaxis = []
-	yaxis = []
-	for i in range(0, len(blklist), width):
-		xaxis.append(float(i)/256)
-		yaxis.append(blklist[i])
-
-	return xaxis, yaxis
-
-def draw_linegraph(xaxis, yaxis, xlabel, ylabel, xlogscale, ylogscale, graphname):
-
-	plot = Plot()
-
-	line = Line()
-	line.xValues = xaxis
-	line.yValues = yaxis 
-
-	plot.add(line)
-	plot.xLabel = xlabel
-	plot.yLabel = ylabel 
-	plot.logx = xlogscale
-	plot.logy = ylogscale
-	plot.save(graphname)
-
-	print " Save " + graphname
-
-
-
-# main program 
-if len(sys.argv) != 3 :
-	print sys.stderr, " Invalid args "  
-	exit(1)
-
-print sys.argv[1]
-
-
-filename = sys.argv[1] 
-graphname = sys.argv[2]
-
-
-blklist, lifelist = read_trace(filename)
-print "Complete read trace", filename
-
-xaxis, yaxis = make_x_y_blkno(blklist, 1)
-draw_linegraph(xaxis, yaxis, "Block Ranges (MB)", "Cumulative Write Frequency", False, False,  graphname + "_cdf" + ".png")
-
-xaxis, yaxis = make_x_y_blkno(blklist, 0)
-draw_linegraph(xaxis, yaxis, "Block Ranges (MB)", "Cumulative Write Frequency", False, False,  graphname + "_frequency" + ".png")
-
-#xaxis, yaxis = make_x_y_life(blklist, lifelist)
-#draw_linegraph(xaxis, yaxis, "Block Life Time (sec)", "Pecent Blocks", False, False, graphname + "_lifetime" + ".png")
-
-#xaxis, yaxis = make_x_y_lifefreq(blklist, lifelist)
-#draw_linegraph(xaxis, yaxis, "Block Life Time (sec)", "Update Count", False, False, graphname + "_lifefreq" + ".png")
-
-
-print " EOP " 
-
+"""
