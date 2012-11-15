@@ -5,11 +5,11 @@ from boomslang import *
 from numpy import *
 import numpy as np
 
-def read_trace(filename):
+def read_trace(filename, outputname):
 
-#blklist_write = []
-#	blklist_read = []
-#lifelist = []
+	prev_arrival = 0.0
+	inter_arrival = 0.0
+	inter_count = 0;
 
 	write_count = 0
 	read_count = 0
@@ -21,8 +21,15 @@ def read_trace(filename):
 	read_req_size = 0
 	read_req_count = 0
 
-	write_wss ={}
+	total_wss = {}
+	write_wss = {}
 	read_wss = {}
+
+	write_reqs = []
+	read_reqs = []
+	write_cur_count = 0
+	read_cur_count = 0
+	start_arrival_time = 0.0
 
 	try: 
 		file = open(filename)
@@ -30,11 +37,31 @@ def read_trace(filename):
 		
 			w = s.split()
 
-			arrivetime =float(w[0])
+			arrivetime = float(w[0])
 			devno =  int(w[1])
 			blkno = int(w[2])
 			bcount = int(w[3])
 			readflag = int(w[4])
+
+			inter_arrival += (arrivetime-prev_arrival)
+			prev_arrival = inter_arrival
+			inter_count += 1
+
+			# request rate 
+			if readflag:
+				read_cur_count+=1
+			else:
+				write_cur_count+=1
+
+			if (arrivetime - start_arrival_time) >= 60000.0:
+				start_arrival_time = arrivetime
+
+				write_reqs.append(write_cur_count)
+				read_reqs.append(read_cur_count)
+
+				write_cur_count = 0
+				read_cur_count = 0
+
 				
 			if bcount % pagesize:
 				bcount -= (bcount % pagesize)
@@ -49,22 +76,24 @@ def read_trace(filename):
 
 			for b in range(0, bcount, pagesize):
 
-				if readflag == 0:
-					pno = (blkno + b)/8  
-#blklist_write.append(pno)
-#lifelist.append(arrivetime)
-					write_count+=1
+				pno = (blkno + b)/8  
 
+				if total_wss.has_key(pno) != True:
+					total_wss[pno] = 1 
+				else:
+					total_wss[pno] += 1
+
+				if readflag == 0:
+
+					write_count+=1
 					if write_wss.has_key(pno) != True:
 						write_wss[pno] = 1 
 					else:
 						write_wss[pno] += 1
 
-#print write_wss[pno]
 				else:
-#blklist_read.append(pno)
-					read_count+=1
 
+					read_count+=1
 					if read_wss.has_key(pno) != True:
 						read_wss[pno] = 1 
 					else:
@@ -79,31 +108,47 @@ def read_trace(filename):
 	except IOError:
 		print >> sys.stderr, " Cannot open file "
 
-#blklist_write.sort()
-	print " I/O Statistics " 
-	print " Total Read Pages %d, %.2f MB" %(read_count, double(read_count)/256) 
-	print " Total Write Pages %d, %.2f MB " %(write_count, double(write_count)/256)
-	print " Total Pages %d, %.2f MB" % (total_count, double(total_count)/256)
-	print " Read Ratio %.2f" %(double(read_count)/double(total_count))
-	print ""
 
-#freq_list_write = make_freq_list(blklist_write)
-#	freq_list_read = make_freq_list(blklist_read)
+#print write_reqs
+#	print read_reqs
+
+	total_wss_size = len(total_wss)
 	read_wss_size = len(read_wss)
 	write_wss_size = len(write_wss)
+	giga = (1024*256)
 
-	print " Write Working Set %d, %.2f MB" %(write_wss_size, double(write_wss_size)/256) 
-	print " Read Working Set %d, %.2f MB" %(read_wss_size, double(read_wss_size)/256) 
+	str = " I/O Statistics \n" 
+	str += " Total Working Set\t %d,\t %.2f GB\n" %(total_wss_size, double(total_wss_size)/giga) 
+	str += " Read Working Set\t %d,\t %.2f GB\n" %(read_wss_size, double(read_wss_size)/giga) 
+	str += " Write Working Set\t %d,\t %.2f GB\n" %(write_wss_size, double(write_wss_size)/giga) 
+	str += "\n"
 
-	print " Average Read Req Size %.2f KB" %(double(read_req_size)/read_req_count*4)
-	print " Average Write Req Size %.2f KB" %(double(write_req_size)/write_req_count*4)
-	print ""
+	str += " Total Pages\t %d,\t %.2f GB\n" % (total_count, double(total_count)/giga)
+	str += " Read Pages\t %d,\t %.2f GB\n" %(read_count, double(read_count)/giga) 
+	str += " Write Pages\t %d,\t %.2f GB\n" %(write_count, double(write_count)/giga)
+	str += " Read Ratio\t %.2f\n" %(double(read_count)/double(total_count))
+	str += "\n"
+
+	str += " Average Read Req Size\t %.2f KB\n" %(double(read_req_size)/read_req_count*4)
+	str += " Average Write Req Size\t %.2f KB\n" %(double(write_req_size)/write_req_count*4)
+	str += "\n"
+
+	str += " Inter Arrival Time\t %f ms\n" %(double(inter_arrival)/inter_count)
+
+	print str 
+
+	try:
+		file = open(outputname, 'w')
+		file.write(str)
+		file.close()
+	except IOError:
+		print >> sys.stderr, " cannot open file "
 
 
 	freqlist_write = write_wss.values()
 	freqlist_read = read_wss.values()
 	
-	return freqlist_write, freqlist_read
+	return freqlist_write, freqlist_read, write_reqs, read_reqs
 
 
 def make_x_y_blkno(freqlist, cumulative):
@@ -151,6 +196,32 @@ def draw_linegraph(xaxis, yaxis, xlabel, ylabel, xlogscale, ylogscale, graphname
 
 	print " Save " + graphname
 
+def draw_linegraph2(xaxis, yaxis, xlabel, ylabel, label,  xlogscale, ylogscale, graphname):
+
+	linestyle = [ "-", "--"]
+	color = ["red", "blue"]
+
+	plot = Plot()
+
+	for i in range(0, len(xaxis)):
+		line = Line()
+		line.xValues = xaxis[i]
+		line.yValues = yaxis[i]
+		line.lineStyle = linestyle[i]
+		line.color = color[i]
+		line.label = label[i]
+		plot.add(line)
+
+	plot.xLabel = xlabel
+	plot.yLabel = ylabel 
+	plot.logx = xlogscale
+	plot.logy = ylogscale
+	plot.hasLegend()
+	plot.setDimensions(8, 6, 100)
+	plot.save(graphname)
+
+	print " Save " + graphname
+
 
 
 # main program 
@@ -165,7 +236,7 @@ filename = sys.argv[1]
 graphname = sys.argv[2]
 
 
-freqlist_write, freqlist_read = read_trace(filename)
+freqlist_write, freqlist_read, write_reqs, read_reqs  = read_trace(filename, graphname + "_iostat.txt")
 print "Complete read trace", filename
 
 xaxis, yaxis = make_x_y_blkno(freqlist_write, 1)
@@ -174,7 +245,14 @@ draw_linegraph(xaxis, yaxis, "Block Ranges (MB)", "Cumulative Write Frequency", 
 xaxis, yaxis = make_x_y_blkno(freqlist_write, 0)
 draw_linegraph(xaxis, yaxis, "Block Ranges (MB)", "Write Frequency", False, False,  graphname + "_frequency" + ".pdf")
 
-
+xaxis = []
+xaxis.append([i for i in range(0, len(write_reqs))])
+xaxis.append([i for i in range(0, len(write_reqs))])
+yaxis = []
+yaxis.append(write_reqs)
+yaxis.append(read_reqs)
+label = ["Write", "Read"]
+draw_linegraph2(xaxis, yaxis, "Time (Min.)", "Request Rate", label, False, False,  graphname + "_req_rate" + ".pdf")
 
 print " EOP " 
 
