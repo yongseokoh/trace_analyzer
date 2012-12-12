@@ -1,9 +1,86 @@
 #!/usr/bin/python 
 
+#Workload Analyzer for Disksim Traces
+#This was written by Yongseok Oh (ysoh@uos.ac.kr), University of Seoul
+
+# Copyright 2012 Yongseok Oh
+# This file is free software: you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 2 of the License, or
+# (at your option) any later version.
+#
+# It is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+# General Public License for more details. 
+# You should have received a copy of the GNU General Public License
+# along with this file. If not, see http://www.gnu.org/licenses/. 
+
 import sys 
 from boomslang import *
 from numpy import *
 import numpy as np
+
+def read_write_wss2(blkno, bcount, readflag, pagesize, readwrite_wss, write_wss, read_wss):
+	for b in range(0, bcount, pagesize):
+
+		pno = (blkno + b)/8  
+
+		if readwrite_wss.has_key(pno) == True:
+			readwrite_wss[pno] += 1
+		else:
+			if readflag == 0:
+				if read_wss.has_key(pno) == True:
+					del read_wss[pno]
+					if readwrite_wss.has_key(pno) != True:
+						readwrite_wss[pno] = 1 
+					else:
+						readwrite_wss[pno] += 1
+						print "debug"
+				else:
+					if write_wss.has_key(pno) != True:
+						write_wss[pno] = 1 
+					else:
+						write_wss[pno] += 1
+			else: # read case
+				if write_wss.has_key(pno) == True:
+					del write_wss[pno]
+					if readwrite_wss.has_key(pno) != True:
+						readwrite_wss[pno] = 1 
+					else:
+						readwrite_wss[pno] += 1
+						print "debug"
+				else:
+
+					if read_wss.has_key(pno) != True:
+						read_wss[pno] = 1 
+					else:
+						read_wss[pno] += 1
+
+
+def read_write_wss(blkno, bcount, readflag, pagesize, total_wss, write_wss, read_wss):
+	for b in range(0, bcount, pagesize):
+
+		pno = (blkno + b)/8  
+
+		if total_wss.has_key(pno) != True:
+			total_wss[pno] = 1 
+		else:
+			total_wss[pno] += 1
+
+		if readflag == 0:
+
+			if write_wss.has_key(pno) != True:
+				write_wss[pno] = 1 
+			else:
+				write_wss[pno] += 1
+
+		else:
+
+			if read_wss.has_key(pno) != True:
+				read_wss[pno] = 1 
+			else:
+				read_wss[pno] += 1
 
 def read_trace(filename, outputname):
 
@@ -24,6 +101,10 @@ def read_trace(filename, outputname):
 	total_wss = {}
 	write_wss = {}
 	read_wss = {}
+
+	write_only_wss = {}
+	read_only_wss = {}
+	readwrite_wss = {}
 
 	write_reqs = []
 	read_reqs = []
@@ -75,33 +156,16 @@ def read_trace(filename, outputname):
 				read_req_count += 1
 
 			for b in range(0, bcount, pagesize):
-
 				pno = (blkno + b)/8  
-
-				if total_wss.has_key(pno) != True:
-					total_wss[pno] = 1 
-				else:
-					total_wss[pno] += 1
-
-				if readflag == 0:
-
-					write_count+=1
-					if write_wss.has_key(pno) != True:
-						write_wss[pno] = 1 
-					else:
-						write_wss[pno] += 1
-
-				else:
-
-					read_count+=1
-					if read_wss.has_key(pno) != True:
-						read_wss[pno] = 1 
-					else:
-						read_wss[pno] += 1
-
 				total_count += 1
+				if readflag == 0:
+					write_count+=1
+				else:
+					read_count+=1
 
-		#print "list len = ", len(blklist)
+
+			read_write_wss(blkno, bcount, readflag, pagesize, total_wss, write_wss, read_wss)
+			read_write_wss2(blkno, bcount, readflag, pagesize, readwrite_wss, write_only_wss, read_only_wss)
 
 		file.close()
 
@@ -117,20 +181,44 @@ def read_trace(filename, outputname):
 	write_wss_size = len(write_wss)
 	giga = (1024*256)
 
+	readonly_wss_size = len(read_only_wss)
+	writeonly_wss_size = len(write_only_wss)
+	readwrite_wss_size = len(readwrite_wss)
+
 	str = " I/O Statistics \n" 
-	str += " Total Working Set\t %d,\t %.2f GB\n" %(total_wss_size, double(total_wss_size)/giga) 
-	str += " Read Working Set\t %d,\t %.2f GB\n" %(read_wss_size, double(read_wss_size)/giga) 
-	str += " Write Working Set\t %d,\t %.2f GB\n" %(write_wss_size, double(write_wss_size)/giga) 
+	str += " Total Working Set\t %8d,\t %.3f GB\n" %(total_wss_size, double(total_wss_size)/giga) 
+	str += "  Read Working Set\t %8d,\t %.3f GB\n" %(read_wss_size, double(read_wss_size)/giga) 
+	str += " Write Working Set\t %8d,\t %.3f GB\n" %(write_wss_size, double(write_wss_size)/giga) 
 	str += "\n"
 
-	str += " Total Pages\t %d,\t %.2f GB\n" % (total_count, double(total_count)/giga)
-	str += " Read Pages\t %d,\t %.2f GB\n" %(read_count, double(read_count)/giga) 
-	str += " Write Pages\t %d,\t %.2f GB\n" %(write_count, double(write_count)/giga)
-	str += " Read Ratio\t %.2f\n" %(double(read_count)/double(total_count))
+	str += " Total Pages\t %8d,\t %.3f GB\n" % (total_count, double(total_count)/giga)
+	str += "  Read Pages\t %8d,\t %.3f GB\n" %(read_count, double(read_count)/giga) 
+	str += " Write Pages\t %8d,\t %.3f GB\n" %(write_count, double(write_count)/giga)
 	str += "\n"
 
-	str += " Average Read Req Size\t %.2f KB\n" %(double(read_req_size)/read_req_count*4)
-	str += " Average Write Req Size\t %.2f KB\n" %(double(write_req_size)/write_req_count*4)
+	str += " Read Ratio\t %.3f\n" %(double(read_count)/double(total_count))
+	str += "\n"
+	str += " Read  Only Working Set\t %8d,\t %.3f GB\n" %(readonly_wss_size, double(readonly_wss_size)/giga) 
+	str += " RW   Mixed Working Set\t %8d,\t %.3f GB\n" %(readwrite_wss_size, double(readwrite_wss_size)/giga) 
+	str += " Write Only Working Set\t %8d,\t %.3f GB\n" %(writeonly_wss_size, double(writeonly_wss_size)/giga) 
+	str += "\n"
+
+	ronly_list = np.array(read_only_wss.values())
+	wonly_list = np.array(write_only_wss.values())
+	rw_list = np.array(readwrite_wss.values())
+
+
+	str += " Read  Only Pages\t %8d,\t %.3f GB\n" %(ronly_list.sum(), 
+			double(ronly_list.sum())/giga) 
+	str += " RW   Mixed Pages\t %8d,\t %.3f GB\n" %(rw_list.sum(), 
+			double(rw_list.sum())/giga) 
+	str += " Write Only Pages\t %8d,\t %.3f GB\n" %(wonly_list.sum(), 
+			double(wonly_list.sum())/giga) 
+
+
+	str += "\n"
+	str += " Average Read Req Size\t %.3f KB\n" %(double(read_req_size)/read_req_count*4)
+	str += " Average Write Req Size\t %.3f KB\n" %(double(write_req_size)/write_req_count*4)
 	str += "\n"
 
 	str += " Inter Arrival Time\t %f ms\n" %(double(inter_arrival)/inter_count)
@@ -229,7 +317,7 @@ if len(sys.argv) != 3 :
 	print sys.stderr, " Invalid args "  
 	exit(1)
 
-print sys.argv[1]
+print "Trace File = ", sys.argv[1]
 
 
 filename = sys.argv[1] 
