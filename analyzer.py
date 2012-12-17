@@ -328,10 +328,16 @@ freqlist_write, freqlist_read, write_reqs, read_reqs  = read_trace(filename, gra
 print "Complete read trace", filename
 
 xaxis, yaxis = make_x_y_blkno(freqlist_write, 1)
-draw_linegraph(xaxis, yaxis, "Block Ranges (MB)", "Cumulative Write Frequency", False, False,  graphname + "_cdf" + ".pdf")
+draw_linegraph(xaxis, yaxis, "Block Ranges (MB)", "Cumulative Write Frequency", False, False,  graphname + "_write_cdf" + ".pdf")
 
 xaxis, yaxis = make_x_y_blkno(freqlist_write, 0)
-draw_linegraph(xaxis, yaxis, "Block Ranges (MB)", "Write Frequency", False, False,  graphname + "_frequency" + ".pdf")
+draw_linegraph(xaxis, yaxis, "Block Ranges (MB)", "Write Frequency", False, False,  graphname + "_write_frequency" + ".pdf")
+
+xaxis, yaxis = make_x_y_blkno(freqlist_read, 1)
+draw_linegraph(xaxis, yaxis, "Block Ranges (MB)", "Cumulative Read Frequency", False, False,  graphname + "_read_cdf" + ".pdf")
+
+xaxis, yaxis = make_x_y_blkno(freqlist_read, 0)
+draw_linegraph(xaxis, yaxis, "Block Ranges (MB)", "Read Frequency", False, False,  graphname + "_read_frequency" + ".pdf")
 
 xaxis = []
 xaxis.append([i for i in range(0, len(write_reqs))])
