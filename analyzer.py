@@ -1,7 +1,7 @@
 #!/usr/bin/python 
 
 #Workload Analyzer for Disksim Traces
-#This was written by Yongseok Oh (ysoh@uos.ac.kr), University of Seoul
+#This program was written by Yongseok Oh (ysoh@uos.ac.kr), University of Seoul
 
 # Copyright 2012 Yongseok Oh
 # This file is free software: you can redistribute it and/or modify it
