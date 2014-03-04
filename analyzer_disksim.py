@@ -1,4 +1,4 @@
-#!/usr/bin/python 
+#!/usr/local/bin/python 
 
 #Workload Analyzer for Disksim Traces
 #This program was written by Yongseok Oh (ysoh@uos.ac.kr), University of Seoul
@@ -84,6 +84,12 @@ def read_write_wss(blkno, bcount, readflag, pagesize, total_wss, write_wss, read
 
 def read_trace(filename, outputname):
 
+	disk_size = 128*1024*1024*1024
+	disk_size_sectors = disk_size / 512
+
+	print " Scale Down blkno with disk size ", disk_size
+
+
 	prev_arrival = 0.0
 	inter_arrival = 0.0
 	inter_count = 0;
@@ -98,6 +104,11 @@ def read_trace(filename, outputname):
 	read_req_size = 0
 	read_req_count = 0
 
+	all_req_size = 0
+	all_req_count = 0
+	
+	max_req_size = 0
+
 	total_wss = {}
 	write_wss = {}
 	read_wss = {}
@@ -108,6 +119,7 @@ def read_trace(filename, outputname):
 
 	write_reqs = []
 	read_reqs = []
+
 	write_cur_count = 0
 	read_cur_count = 0
 	start_arrival_time = 0.0
@@ -116,13 +128,16 @@ def read_trace(filename, outputname):
 		file = open(filename)
 		for s in file:
 		
-			w = s.split()
+			w=s.split()	
 
 			arrivetime = float(w[0])
 			devno =  int(w[1])
 			blkno = int(w[2])
 			bcount = int(w[3])
 			readflag = int(w[4])
+
+			if bcount > max_req_size:
+				max_req_size = bcount 
 
 			inter_arrival += (arrivetime-prev_arrival)
 			prev_arrival = inter_arrival
@@ -154,6 +169,10 @@ def read_trace(filename, outputname):
 			else:
 				read_req_size += (bcount/pagesize)
 				read_req_count += 1
+
+			all_req_size += (bcount/pagesize)
+			all_req_count += 1
+	
 
 			for b in range(0, bcount, pagesize):
 				pno = (blkno + b)/8  
@@ -219,9 +238,12 @@ def read_trace(filename, outputname):
 	str += "\n"
 	str += " Average Read Req Size\t %.3f KB\n" %(double(read_req_size)/read_req_count*4)
 	str += " Average Write Req Size\t %.3f KB\n" %(double(write_req_size)/write_req_count*4)
+	str += " Average All Req Size\t %.3f KB\n" %(double(all_req_size)/all_req_count*4)
 	str += "\n"
 
 	str += " Inter Arrival Time\t %f ms\n" %(double(inter_arrival)/inter_count)
+
+	str += " Max Req Size %f MB \n" %(double(max_req_size)/2/1024)
 
 	print str 
 
@@ -264,6 +286,23 @@ def make_x_y_blkno(freqlist, cumulative):
 
 	return xaxis, yaxis
 
+def save_rawdata(xaxis, yaxis, xlabel, ylabel, graphname):
+
+	print " Save " + graphname
+
+	data = "#%s\t\%s\n" %( xlabel, ylabel )
+
+	for i in range(len(xaxis)):
+		data +=  "%s\t%s\n" %( xaxis[i], yaxis[i] )
+
+	try:
+		wf = open(graphname, 'w')
+		wf.write(data)
+		wf.close()
+	except IOError:
+		print >> sys.stderr, " Cannot open file "
+
+
 def draw_linegraph(xaxis, yaxis, xlabel, ylabel, xlogscale, ylogscale, graphname):
 
 	plot = Plot()
@@ -279,12 +318,13 @@ def draw_linegraph(xaxis, yaxis, xlabel, ylabel, xlogscale, ylogscale, graphname
 	plot.yLabel = ylabel 
 	plot.logx = xlogscale
 	plot.logy = ylogscale
-	plot.setDimensions(8, 6, 100)
+	plot.setDimensions(4, 3, 100)
 	plot.save(graphname)
 
 	print " Save " + graphname
 
-def draw_linegraph2(xaxis, yaxis, xlabel, ylabel, label,  xlogscale, ylogscale, graphname):
+
+def draw_linegraph2(xaxis, yaxis, xlabel, ylabel, label,  xlogscale, ylogscale, graphname, xsize, ysize):
 
 	linestyle = [ "-", "--"]
 	color = ["red", "blue"]
@@ -305,7 +345,7 @@ def draw_linegraph2(xaxis, yaxis, xlabel, ylabel, label,  xlogscale, ylogscale, 
 	plot.logx = xlogscale
 	plot.logy = ylogscale
 	plot.hasLegend()
-	plot.setDimensions(8, 6, 100)
+	plot.setDimensions(xsize, ysize, 100)
 	plot.save(graphname)
 
 	print " Save " + graphname
@@ -329,6 +369,7 @@ print "Complete read trace", filename
 
 xaxis, yaxis = make_x_y_blkno(freqlist_write, 1)
 draw_linegraph(xaxis, yaxis, "Block Ranges (MB)", "Cumulative Write Frequency", False, False,  graphname + "_write_cdf" + ".pdf")
+save_rawdata(np.array(xaxis)/1024, yaxis, "Block Ragnes (GB)", "Cumulative Write Frequency", graphname + "_wfreq_rawdata.txt" )
 
 xaxis, yaxis = make_x_y_blkno(freqlist_write, 0)
 draw_linegraph(xaxis, yaxis, "Block Ranges (MB)", "Write Frequency", False, False,  graphname + "_write_frequency" + ".pdf")
@@ -339,14 +380,29 @@ draw_linegraph(xaxis, yaxis, "Block Ranges (MB)", "Cumulative Read Frequency", F
 xaxis, yaxis = make_x_y_blkno(freqlist_read, 0)
 draw_linegraph(xaxis, yaxis, "Block Ranges (MB)", "Read Frequency", False, False,  graphname + "_read_frequency" + ".pdf")
 
+
+# rw cdf
 xaxis = []
-xaxis.append([i for i in range(0, len(write_reqs))])
-xaxis.append([i for i in range(0, len(write_reqs))])
+yaxis = []
+xax, yax = make_x_y_blkno(freqlist_write, 1)
+xax = np.array(xax)/1024
+xaxis.append(xax)
+yaxis.append(yax)
+xax, yax = make_x_y_blkno(freqlist_read, 1)
+xax = np.array(xax)/1024
+xaxis.append(xax)
+yaxis.append(yax)
+label = ["Write", "Read"]
+draw_linegraph2(xaxis, yaxis, "Block Range (GB)", "Cumulative Frequency", label, False, False,  graphname + "_cdf" + ".pdf", 4, 3);
+
+xaxis = []
+xaxis.append([float(i)/60 for i in range(0, len(write_reqs))])
+xaxis.append([float(i)/60 for i in range(0, len(read_reqs))])
 yaxis = []
 yaxis.append(write_reqs)
 yaxis.append(read_reqs)
 label = ["Write", "Read"]
-draw_linegraph2(xaxis, yaxis, "Time (Min.)", "Request Rate", label, False, False,  graphname + "_req_rate" + ".pdf")
+draw_linegraph2(xaxis, yaxis, "Time (Hour)", "Request Rate", label, False, False,  graphname + "_req_rate" + ".pdf", 8, 2)
 
 print " EOP " 
 
