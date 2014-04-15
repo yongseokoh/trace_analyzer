@@ -130,6 +130,15 @@ def read_trace(filename, outputname):
 	time_unit = 10000
 	start=0.0
 
+	seq_start = 0
+	seq_length = 0
+
+	last_arrival_time = 0.0
+
+	block_offset_total = 0.0
+	block_offset_count = 0
+	block_offset_last = 0
+
 	try: 
 		file = open(filename)
 		for s in file:
@@ -138,6 +147,7 @@ def read_trace(filename, outputname):
 			if(start==0):
 				start=float(token[0]) / time_unit	
 			arrivetime = float(token[0]) / time_unit - start  #ms
+			last_arrival_time = arrivetime
 			devno =  0 #fix
 			
 			page_align = 0	
@@ -152,6 +162,15 @@ def read_trace(filename, outputname):
 			else:
 				blkno = long(token[4])/sector_size
 				bcount = long(token[5])/sector_size
+
+			if (seq_length == 0) or (seq_start + seq_length != blkno):
+				seq_start = blkno
+				seq_length = bcount
+			else:
+				seq_length += bcount
+
+#if seq_length >= 128*1024/sector_size:
+#				continue
 
 			#if int(token[4]) > int(4*1024*1024*1024):
 			#	print "Greater than 4GB ", int(token[4])/(1024*1024*1024)
@@ -212,6 +231,9 @@ def read_trace(filename, outputname):
 				else:
 					read_count+=1
 
+			block_offset_total += abs(blkno-block_offset_last)
+			block_offset_count += 1
+			block_offset_last = blkno
 
 			read_write_wss(blkno, bcount, readflag, pagesize, total_wss, write_wss, read_wss)
 			read_write_wss2(blkno, bcount, readflag, pagesize, readwrite_wss, write_only_wss, read_only_wss)
@@ -274,6 +296,8 @@ def read_trace(filename, outputname):
 	str += " Inter Arrival Time\t %f ms\n" %(double(inter_arrival)/inter_count)
 
 	str += " Max Req Size %f MB \n" %(double(max_req_size)/2/1024)
+	str += " Avg Block Offset %f (sectors) \n" %(double(block_offset_total)/block_offset_count)
+	str += " Duration %f Hour (%f Day)\n" %(double(last_arrival_time)/1000/3600, double(last_arrival_time)/1000/3600/24)
 
 	print str 
 
