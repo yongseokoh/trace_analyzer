@@ -17,9 +17,22 @@
 # along with this file. If not, see http://www.gnu.org/licenses/. 
 
 import sys 
+import matplotlib
+matplotlib.use('Agg')
+
 from boomslang import *
 from numpy import *
 import numpy as np
+from collections import defaultdict
+
+
+start_time = 0.0
+time_unit = 10000
+page_size = 4096
+sector_size = 512
+disk_size = 1024*1024*1024*1024
+disk_size_sectors = disk_size / sector_size
+
 
 def read_write_wss2(blkno, bcount, readflag, pagesize, readwrite_wss, write_wss, read_wss):
 	for b in range(0, bcount, pagesize):
@@ -63,32 +76,81 @@ def read_write_wss(blkno, bcount, readflag, pagesize, total_wss, write_wss, read
 
 		pno = (blkno + b)/8  
 
-		if total_wss.has_key(pno) != True:
-			total_wss[pno] = 1 
-		else:
-			total_wss[pno] += 1
+#if total_wss.has_key(pno) != True:
+#			total_wss[pno] = 1 
+#		else:
+		total_wss[pno]+= 1
+#total_wss[pno] = total_wss(pno, 0) + 1
 
 		if readflag == 0:
 
-			if write_wss.has_key(pno) != True:
-				write_wss[pno] = 1 
-			else:
-				write_wss[pno] += 1
+#			if write_wss.has_key(pno) != True:
+#				write_wss[pno] = 1 
+#			else:
+			write_wss[pno] += 1
 
 		else:
 
-			if read_wss.has_key(pno) != True:
-				read_wss[pno] = 1 
-			else:
-				read_wss[pno] += 1
+#			if read_wss.has_key(pno) != True:
+#				read_wss[pno] = 1 
+#			else:
+			read_wss[pno] += 1
+
+def parse_trace_disksim(s):
+	global start_time
+
+	w=s.split()	
+
+	arrivetime = float(w[0])
+	if(start_time==0):
+		start_time=float(w[0]) 	
+	arrivetime = float(w[0]) - start_time  #ms
+
+	devno =  int(w[1])
+	blkno = int(w[2])
+	bcount = int(w[3])
+	readflag = int(w[4])
+
+#print arrivetime, devno, blkno, bcount, readflag
+	return arrivetime, devno, blkno, bcount, readflag
+
+def parse_trace_msr_cambridge(s):
+	global start_time
+	global time_unit
+	global sector_size 
+	global sector_per_page
+
+	token=s.split(',')	
+	if(start_time==0):
+		start_time=float(token[0]) / time_unit	
+	arrivetime = float(token[0]) / time_unit - start_time  #ms
+	devno =  0 #fix
+	
+	page_align = 0	
+	if page_align == 1:
+		pno = long(token[4])/page_size
+		pcount = long(token[5])/page_size
+		if(long(token[5])%page_size):
+			pcount+=1
+
+		blkno = pno*sector_per_page # sector(512byte)
+		bcount = pcount*sector_per_page #sector count
+	else:
+		blkno = long(token[4])/sector_size
+		bcount = long(token[5])/sector_size
+
+	readflag = 1 # read(1), write(0)
+	if token[3]=="Write":
+		readflag=0
+
+	return arrivetime, devno, blkno, bcount, readflag
 
 def read_trace(filename, outputname):
 
-	disk_size = 1024*1024*1024*1024
-	disk_size_sectors = disk_size / 512
 
 	print " Scale Down blkno with disk size %dGB" % (disk_size/1024/1024/1024)
 
+	start_time = 0.0
 
 	prev_arrival = 0.0
 	inter_arrival = 0.0
@@ -97,7 +159,9 @@ def read_trace(filename, outputname):
 	write_count = 0
 	read_count = 0
 	total_count = 0
-	pagesize = 8
+
+	sector_per_page = page_size/sector_size
+	pagesize = sector_per_page
 
 	write_req_size = 0
 	write_req_count = 0
@@ -109,13 +173,21 @@ def read_trace(filename, outputname):
 	
 	max_req_size = 0
 
-	total_wss = {}
-	write_wss = {}
-	read_wss = {}
+#	total_wss = judy.JudyIntObjectMap()
+#	write_wss = judy.JudyIntObjectMap()
+#	read_wss = judy.JudyIntObjectMap()
+#
 
-	write_only_wss = {}
-	read_only_wss = {}
-	readwrite_wss = {}
+	total_wss = [0] * (disk_size / page_size)
+	write_wss = [0] * (disk_size / page_size)
+	read_wss = [0] * (disk_size / page_size)
+#total_wss = defaultdict(int)
+#	write_wss = defaultdict(int) 
+#	read_wss = defaultdict(int)
+
+#write_only_wss = {}
+#	read_only_wss = {}
+#	readwrite_wss = {}
 
 	write_reqs = []
 	read_reqs = []
@@ -124,11 +196,6 @@ def read_trace(filename, outputname):
 	read_cur_count = 0
 	start_arrival_time = 0.0
 
-	sector_size = 512
-	page_size = 4096
-	sector_per_page = page_size/sector_size
-	time_unit = 10000
-	start=0.0
 
 	seq_start = 0
 	seq_length = 0
@@ -143,25 +210,10 @@ def read_trace(filename, outputname):
 		file = open(filename)
 		for s in file:
 		
-			token=s.split(',')	
-			if(start==0):
-				start=float(token[0]) / time_unit	
-			arrivetime = float(token[0]) / time_unit - start  #ms
-			last_arrival_time = arrivetime
-			devno =  0 #fix
-			
-			page_align = 0	
-			if page_align == 1:
-				pno = long(token[4])/page_size
-				pcount = long(token[5])/page_size
-				if(long(token[5])%page_size):
-					pcount+=1
+#arrivetime, devno, blkno, bcount, readflag = parse_trace_msr_cambridge(s)
+			arrivetime, devno, blkno, bcount, readflag = parse_trace_disksim(s)
 
-				blkno = pno*sector_per_page # sector(512byte)
-				bcount = pcount*sector_per_page #sector count
-			else:
-				blkno = long(token[4])/sector_size
-				bcount = long(token[5])/sector_size
+			last_arrival_time = arrivetime
 
 			if (seq_length == 0) or (seq_start + seq_length != blkno):
 				seq_start = blkno
@@ -172,18 +224,6 @@ def read_trace(filename, outputname):
 #if seq_length >= 128*1024/sector_size:
 #				continue
 
-			#if int(token[4]) > int(4*1024*1024*1024):
-			#	print "Greater than 4GB ", int(token[4])/(1024*1024*1024)
-			readflag = 1 # read(1), write(0)
-			if token[3]=="Write":
-				readflag=0
-
-			#print blkno
-#			data = "%f\t%d\t%d\t%d\t%d\n" % (arrivetime, devno, blkno, bcount, readflag)
-#			print data
-
-#arrivetime = float(w[0])
-			devno =  0
 
 			if bcount > max_req_size:
 				max_req_size = bcount 
@@ -236,7 +276,7 @@ def read_trace(filename, outputname):
 			block_offset_last = blkno
 
 			read_write_wss(blkno, bcount, readflag, pagesize, total_wss, write_wss, read_wss)
-			read_write_wss2(blkno, bcount, readflag, pagesize, readwrite_wss, write_only_wss, read_only_wss)
+#read_write_wss2(blkno, bcount, readflag, pagesize, readwrite_wss, write_only_wss, read_only_wss)
 
 		file.close()
 
@@ -247,14 +287,34 @@ def read_trace(filename, outputname):
 #print write_reqs
 #	print read_reqs
 
-	total_wss_size = len(total_wss)
-	read_wss_size = len(read_wss)
-	write_wss_size = len(write_wss)
+#total_wss_size = len(total_wss)
+#	read_wss_size = len(read_wss)
+#write_wss_size = len(write_wss)
+	total_wss_size = 0
+	for w in total_wss:
+		if w > 0:
+			total_wss_size += 1
+
+	freqlist_read = [] #read_wss.values()
+	read_wss_size = 0
+	for w in read_wss:
+		if w > 0:
+			read_wss_size += 1
+			freqlist_read.append(w)
+
+	freqlist_write = [] #write_wss.values()
+	write_wss_size = 0
+	for w in write_wss:
+		if w > 0:
+			write_wss_size += 1
+			freqlist_write.append(w)
+
 	giga = (1024*256)
 
-	readonly_wss_size = len(read_only_wss)
-	writeonly_wss_size = len(write_only_wss)
-	readwrite_wss_size = len(readwrite_wss)
+
+#readonly_wss_size = len(read_only_wss)
+#	writeonly_wss_size = len(write_only_wss)
+#	readwrite_wss_size = len(readwrite_wss)
 
 	str = " I/O Statistics \n" 
 	str += " Total Working Set\t %8d,\t %.3f GB\n" %(total_wss_size, double(total_wss_size)/giga) 
@@ -269,22 +329,22 @@ def read_trace(filename, outputname):
 
 	str += " Read Ratio\t %.3f\n" %(double(read_count)/double(total_count))
 	str += "\n"
-	str += " Read  Only Working Set\t %8d,\t %.3f GB\n" %(readonly_wss_size, double(readonly_wss_size)/giga) 
-	str += " RW   Mixed Working Set\t %8d,\t %.3f GB\n" %(readwrite_wss_size, double(readwrite_wss_size)/giga) 
-	str += " Write Only Working Set\t %8d,\t %.3f GB\n" %(writeonly_wss_size, double(writeonly_wss_size)/giga) 
-	str += "\n"
+#str += " Read  Only Working Set\t %8d,\t %.3f GB\n" %(readonly_wss_size, double(readonly_wss_size)/giga) 
+#	str += " RW   Mixed Working Set\t %8d,\t %.3f GB\n" %(readwrite_wss_size, double(readwrite_wss_size)/giga) 
+#	str += " Write Only Working Set\t %8d,\t %.3f GB\n" %(writeonly_wss_size, double(writeonly_wss_size)/giga) 
+#str += "\n"
 
-	ronly_list = np.array(read_only_wss.values())
-	wonly_list = np.array(write_only_wss.values())
-	rw_list = np.array(readwrite_wss.values())
+#ronly_list = np.array(read_only_wss.values())
+#	wonly_list = np.array(write_only_wss.values())
+#	rw_list = np.array(readwrite_wss.values())
 
 
-	str += " Read  Only Pages\t %8d,\t %.3f GB\n" %(ronly_list.sum(), 
-			double(ronly_list.sum())/giga) 
-	str += " RW   Mixed Pages\t %8d,\t %.3f GB\n" %(rw_list.sum(), 
-			double(rw_list.sum())/giga) 
-	str += " Write Only Pages\t %8d,\t %.3f GB\n" %(wonly_list.sum(), 
-			double(wonly_list.sum())/giga) 
+#str += " Read  Only Pages\t %8d,\t %.3f GB\n" %(ronly_list.sum(), 
+#			double(ronly_list.sum())/giga) 
+#	str += " RW   Mixed Pages\t %8d,\t %.3f GB\n" %(rw_list.sum(), 
+#			double(rw_list.sum())/giga) 
+#	str += " Write Only Pages\t %8d,\t %.3f GB\n" %(wonly_list.sum(), 
+#			double(wonly_list.sum())/giga) 
 
 
 	str += "\n"
@@ -309,8 +369,6 @@ def read_trace(filename, outputname):
 		print >> sys.stderr, " cannot open file "
 
 
-	freqlist_write = write_wss.values()
-	freqlist_read = read_wss.values()
 	
 	return freqlist_write, freqlist_read, write_reqs, read_reqs
 
